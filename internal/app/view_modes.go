@@ -474,17 +474,22 @@ func (m Model) viewExecTerminal() string {
 					ch = ' '
 				}
 				// Apply FG/BG colors.
-				// vt10x resolves attrReverse at write time by swapping FG/BG,
-				// so a reversed DefaultFG/DefaultBG cell ends up with
-				// g.FG=DefaultBG and g.BG=DefaultFG — default color values >= 1<<24
-				// that are not valid terminal colors. Skip them and let
-				// Reverse(true) below handle the visual inversion.
-				style := lipgloss.NewStyle()
-				if g.FG < vt10x.DefaultFG {
-					style = style.Foreground(vt10xColorToLipgloss(g.FG))
+				// vt10x resolves attrReverse at write time by swapping FG/BG in
+				// the stored glyph. Undo that swap before reading colors so that
+				// Reverse(true) below can do the visual inversion correctly.
+				// Default color values (>= vt10x.DefaultFG) are not valid terminal
+				// colors and must be skipped; lipgloss will use the terminal's own
+				// defaults for those channels.
+				fgColor, bgColor := g.FG, g.BG
+				if g.Mode&1 != 0 { // attrReverse — undo vt10x's eager swap
+					fgColor, bgColor = bgColor, fgColor
 				}
-				if g.BG < vt10x.DefaultFG {
-					style = style.Background(vt10xColorToLipgloss(g.BG))
+				style := lipgloss.NewStyle()
+				if fgColor < vt10x.DefaultFG {
+					style = style.Foreground(vt10xColorToLipgloss(fgColor))
+				}
+				if bgColor < vt10x.DefaultFG {
+					style = style.Background(vt10xColorToLipgloss(bgColor))
 				}
 				// Apply text attributes from glyph mode.
 				if g.Mode&(1<<2) != 0 { // bold (attrBold = 4)
