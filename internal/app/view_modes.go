@@ -474,11 +474,16 @@ func (m Model) viewExecTerminal() string {
 					ch = ' '
 				}
 				// Apply FG/BG colors.
+				// vt10x resolves attrReverse at write time by swapping FG/BG,
+				// so a reversed DefaultFG/DefaultBG cell ends up with
+				// g.FG=DefaultBG and g.BG=DefaultFG — default color values >= 1<<24
+				// that are not valid terminal colors. Skip them and let
+				// Reverse(true) below handle the visual inversion.
 				style := lipgloss.NewStyle()
-				if g.FG != vt10x.DefaultFG {
+				if g.FG < vt10x.DefaultFG {
 					style = style.Foreground(vt10xColorToLipgloss(g.FG))
 				}
-				if g.BG != vt10x.DefaultBG {
+				if g.BG < vt10x.DefaultFG {
 					style = style.Background(vt10xColorToLipgloss(g.BG))
 				}
 				// Apply text attributes from glyph mode.
@@ -500,7 +505,9 @@ func (m Model) viewExecTerminal() string {
 			lines = append(lines, line.String())
 		}
 		m.execMu.Unlock()
-		termContent = strings.Join(lines, "\n")
+		// Re-establish BaseBg after every ANSI reset so that DefaultBG cells
+		// don't fall back to the terminal's own black between styled segments.
+		termContent = ui.FillLinesBg(strings.Join(lines, "\n"), viewW, ui.BaseBg)
 	} else {
 		termContent = ui.DimStyle.Render("Terminal not initialized")
 	}
@@ -509,13 +516,8 @@ func (m Model) viewExecTerminal() string {
 		termContent += "\n\n" + ui.DimStyle.Render("  Process exited. Press any key to return.")
 	}
 
-	// Wrap terminal content in a rounded border.
-	borderStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(ui.ColorPrimary)).
-		Padding(0, 0).
-		Width(m.width - 2).
-		Height(viewH)
+	// Wrap terminal content in a rounded border, using the standard themed style.
+	borderStyle := ui.FullscreenBorderStyle(m.width, viewH)
 	bordered := borderStyle.Render(termContent)
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, bordered, hintLine)
